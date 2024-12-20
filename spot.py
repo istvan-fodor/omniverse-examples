@@ -25,6 +25,8 @@ from omni.isaac.quadruped.robots import SpotFlatTerrainPolicy
 import random
 from omni.isaac.core.objects import DynamicCuboid, DynamicCone, DynamicCapsule
 import omni.graph.core as og
+from omni.isaac.sensor import IMUSensor, LidarRtx
+import numpy as np
 
 ext_manager = omni.kit.app.get_app().get_extension_manager()
 ext_manager.set_extension_enabled_immediate("omni.isaac.ros2_bridge", True)
@@ -59,6 +61,7 @@ class SimulationWorld():
         # Add random geometric elements
         self.spawn_random_objects(num_objects=10)
 
+
     def init_clock(self):
         keys = og.Controller.Keys
         og.Controller.edit(
@@ -80,6 +83,7 @@ class SimulationWorld():
             },
         )
 
+
     def spawn_random_objects(self, num_objects=10):
         """
         Spawns a given number of random geometric objects with rigid body physics in the world.
@@ -100,8 +104,8 @@ class SimulationWorld():
                     prim_path=prim_path,
                     name=f"RandomObject_{i}",
                     position=np.array([x, y, z]),
-                    scale=np.array([scale, scale, scale]),
-                    color=np.array([random.randint(120, 255), random.randint(120, 255), random.randint(120, 255)]),
+                    scale=np.full(3, scale),
+                    color=np.random.uniform(0.5, 1.0, 3),
                     mass=scale
                 )
             )
@@ -142,24 +146,78 @@ class SpotSimulation():
         self._init_cameras()
         self._init_odometry()
         self._init_lidar()
+        self._init_imu()
         
         self.world.add_physics_callback("physics_step", callback_fn=self.on_physics_step)
         self.world.reset()
+
+    def _init_imu(self):
+        stage = omni.usd.get_context().get_stage()
+        xform_path = f"{self._absolute_path}/body/imu_xform"
+        xform = UsdGeom.Xform.Define(stage, xform_path)
+        xform.AddTranslateOp().Set(Gf.Vec3f(0.0, 0.0, 0.0))
+        
+        path = f"{xform_path}/imu"
+        
+        self.imu = IMUSensor(
+            prim_path=path,
+            name="imu",
+            frequency=60,
+            translation=np.array([0, 0, 0]),
+            orientation=np.array([1, 0, 0, 0]),
+            linear_acceleration_filter_size = 10,
+            angular_velocity_filter_size = 10,
+            orientation_filter_size = 10,
+        )
+
+        keys = og.Controller.Keys
+        graph_path = "/ROS_Imu"
+        (imu_path, _, _, _) = og.Controller.edit(
+            {
+                "graph_path": graph_path,
+                "evaluator_name": "execution",
+                "pipeline_stage": og.GraphPipelineStage.GRAPH_PIPELINE_STAGE_SIMULATION,
+            },
+            {
+                keys.CREATE_NODES: [
+                    ("OnPlaybackTick", "omni.graph.action.OnPlaybackTick"),
+                    ("RosContext", f"omni.isaac.{self.ros_bridge_version}.{self.ros_version}Context"),
+                    ("ReadIMU", f"omni.isaac.sensor.IsaacReadIMU"),
+                    ("PublishIMU", f"omni.isaac.{self.ros_bridge_version}.{self.ros_version}PublishImu"),
+                ],
+                keys.CONNECT: [
+                    ("OnPlaybackTick.outputs:tick", "ReadIMU.inputs:execIn"),
+                    ("RosContext.outputs:context", "PublishIMU.inputs:context"),
+                    ("ReadIMU.outputs:execOut", "PublishIMU.inputs:execIn"),
+                    ("ReadIMU.outputs:angVel", "PublishIMU.inputs:angularVelocity"),
+                    ("ReadIMU.outputs:linAcc","PublishIMU.inputs:linearAcceleration"),
+                    ("ReadIMU.outputs:orientation","PublishIMU.inputs:orientation"),
+                    ("ReadIMU.outputs:sensorTime","PublishIMU.inputs:timeStamp"),
+                ],
+                keys.SET_VALUES: [
+                    ("ReadIMU.inputs:imuPrim", path),
+                    ("ReadIMU.inputs:readGravity" , True),
+                    ("PublishIMU.inputs:topicName" , "imu"),
+                    ("PublishIMU.inputs:frameId" , "imu"),
+                    ("PublishIMU.inputs:publishAngularVelocity" , True),
+                    ("PublishIMU.inputs:publishLinearAcceleration" , True),
+                    ("PublishIMU.inputs:publishOrientation" , True),
+                ]
+            },
+        )
+        self.imu_path = imu_path
+
+
+
 
     def _init_lidar(self):
         stage = omni.usd.get_context().get_stage()
         xform_path = f"{self._absolute_path}/body/lidar_xform"
         xform = UsdGeom.Xform.Define(stage, xform_path)
         xform.AddTranslateOp().Set(Gf.Vec3f(0.4, 0.0, .1))
-        
         path = f"{xform_path}/lidar"
-        _, self.lidar = omni.kit.commands.execute(
-            "IsaacSensorCreateRtxLidar",
-            path="lidar",
-            parent=xform_path,
-            config="Example_Rotary",
-            orientation=Gf.Quatd(1.0, 0.0, 0.0, 0.0),  # Gf.Quatd is w,i,j,k
-        )
+    
+        self.lidar = LidarRtx(path, name="spot_lidar", orientation=np.array([1.0, 0.0, 0.0, 0.0]))
 
         keys = og.Controller.Keys
         graph_path = "/ROS_Lidar"
@@ -218,34 +276,43 @@ class SpotSimulation():
                     ("ComputeOdometry", f"omni.isaac.core_nodes.IsaacComputeOdometry"),
                     ("ReadSimTime", f"omni.isaac.core_nodes.IsaacReadSimulationTime"),
                     ("PublishOdometry", f"omni.isaac.{self.ros_bridge_version}.{self.ros_version}PublishOdometry"),
-                    ("PublishRawTF", f"omni.isaac.{self.ros_bridge_version}.{self.ros_version}PublishRawTransformTree"),
+                    ("PublishRawTF1", f"omni.isaac.{self.ros_bridge_version}.{self.ros_version}PublishRawTransformTree"),
+                    ("PublishRawTF2", f"omni.isaac.{self.ros_bridge_version}.{self.ros_version}PublishRawTransformTree"),
                     ("PublishTF", f"omni.isaac.{self.ros_bridge_version}.{self.ros_version}PublishTransformTree"),
                 ],
                 keys.CONNECT: [
                     ("OnPlaybackTick.outputs:tick", "ComputeOdometry.inputs:execIn"),
                     ("ComputeOdometry.outputs:execOut", "PublishOdometry.inputs:execIn"),
-                    ("ComputeOdometry.outputs:execOut", "PublishRawTF.inputs:execIn"),
+                    ("ComputeOdometry.outputs:execOut", "PublishRawTF1.inputs:execIn"),
+                    ("ComputeOdometry.outputs:execOut", "PublishRawTF2.inputs:execIn"),
                     ("ComputeOdometry.outputs:execOut", "PublishTF.inputs:execIn"),
                     ("RosContext.outputs:context", "PublishOdometry.inputs:context"),
                     ("ReadSimTime.outputs:simulationTime", "PublishOdometry.inputs:timeStamp"),
-                    ("ReadSimTime.outputs:simulationTime", "PublishRawTF.inputs:timeStamp"),
+                    ("ReadSimTime.outputs:simulationTime", "PublishRawTF1.inputs:timeStamp"),
+                    ("ReadSimTime.outputs:simulationTime", "PublishRawTF2.inputs:timeStamp"),
                     ("ReadSimTime.outputs:simulationTime", "PublishTF.inputs:timeStamp"),
                     ("ComputeOdometry.outputs:angularVelocity", "PublishOdometry.inputs:angularVelocity"),
                     ("ComputeOdometry.outputs:linearVelocity", "PublishOdometry.inputs:linearVelocity"),
                     ("ComputeOdometry.outputs:orientation", "PublishOdometry.inputs:orientation"),
                     ("ComputeOdometry.outputs:position", "PublishOdometry.inputs:position"),
-                    ("ComputeOdometry.outputs:position", "PublishRawTF.inputs:translation"),
-                    ("ComputeOdometry.outputs:orientation", "PublishRawTF.inputs:rotation"),
+                    ("ComputeOdometry.outputs:position", "PublishRawTF1.inputs:translation"),
+                    ("ComputeOdometry.outputs:orientation", "PublishRawTF1.inputs:rotation"),
                 ],
                 keys.SET_VALUES: [
                     ("PublishOdometry.inputs:topicName", "/odom"),
                     ("ComputeOdometry.inputs:chassisPrim", self._absolute_path),
-                    ("PublishRawTF.inputs:parentFrameId", "odom"),
-                    ("PublishRawTF.inputs:childFrameId", "body"),
-                    ("PublishRawTF.inputs:topicName", "tf"),
+                    ("PublishRawTF1.inputs:parentFrameId", "odom"),
+                    ("PublishRawTF1.inputs:childFrameId", "base_link"),
+                    ("PublishRawTF1.inputs:topicName", "tf"),
+                    ("PublishRawTF2.inputs:parentFrameId", "base_link"),
+                    ("PublishRawTF2.inputs:childFrameId", "body"),
+                    ("PublishRawTF2.inputs:topicName", "tf"),
                     ("PublishTF.inputs:topicName", "tf"),
                     ("PublishTF.inputs:parentPrim", f"{self._absolute_path}/body"),
-                    ("PublishTF.inputs:targetPrims", [f"{self._absolute_path}/body/lidar_xform/lidar", f"{self._absolute_path}/body/camera_right", f"{self._absolute_path}/body/camera_left"]),
+                    ("PublishTF.inputs:targetPrims", [f"{self._absolute_path}/body/lidar_xform/lidar"
+                                                      , f"{self._absolute_path}/body/imu_xform/imu"
+                                                      , f"{self._absolute_path}/body/camera_right"
+                                                      , f"{self._absolute_path}/body/camera_left"]),
 
                 ]
             },
