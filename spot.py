@@ -36,7 +36,7 @@ is_ros2 = True
 
 
 class SimulationWorld():
-    def __init__(self):
+    def __init__(self, environment="default"):
         self.world = World(stage_units_in_meters=1.0, physics_dt=1 / 500, rendering_dt=1 / 50)
         assets_root_path = get_assets_root_path()
         if assets_root_path is None:
@@ -52,14 +52,24 @@ class SimulationWorld():
             self.ros_version = "ROS2"
             self.ros_bridge_version = "ros2_bridge"
 
-        # Spawn warehouse scene
-        prim = define_prim("/World/Ground", "Xform")
-        asset_path = assets_root_path + "/Isaac/Environments/Grid/default_environment.usd"
-        prim.GetReferences().AddReference(asset_path)
-        self.init_clock()
+        assets_root_path = get_assets_root_path()
+        if assets_root_path is None:
+            carb.log_error("Could not find Isaac Sim assets folder")
 
-        # Add random geometric elements
-        self.spawn_random_objects(num_objects=10)
+
+        if environment == "warehouse":
+            prim = get_prim_at_path("/World/Warehouse")
+
+            if not prim.IsValid():
+                prim = define_prim("/World/Warehouse", "Xform")
+                asset_path = assets_root_path + "/Isaac/Environments/Simple_Warehouse/warehouse.usd"
+                prim.GetReferences().AddReference(asset_path)
+        else: # default
+            prim = define_prim("/World/Ground", "Xform")
+            asset_path = assets_root_path + "/Isaac/Environments/Grid/default_environment.usd"
+            prim.GetReferences().AddReference(asset_path)
+
+            self.spawn_random_objects(num_objects=10)
 
 
     def init_clock(self):
@@ -437,7 +447,7 @@ class SpotSimulation():
             command = np.array(linear_velocity) + np.array(angular_velocity)
             self.spot.advance(step_size, command)
 
-world = SimulationWorld()
+world = SimulationWorld("warehouse")
 sim = SpotSimulation("spot", world.world)
 
 

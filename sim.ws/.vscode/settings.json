@@ -1,0 +1,14 @@
+{
+    "python.autoComplete.extraPaths": [
+        "/home/ifodor/Documents/Projects/omniverse-examples/sim.ws/build/robo-sim",
+        "/home/ifodor/Documents/Projects/omniverse-examples/sim.ws/install/robo-sim/lib/python3.10/site-packages",
+        "/opt/ros/humble/lib/python3.10/site-packages",
+        "/opt/ros/humble/local/lib/python3.10/dist-packages"
+    ],
+    "python.analysis.extraPaths": [
+        "/home/ifodor/Documents/Projects/omniverse-examples/sim.ws/build/robo-sim",
+        "/home/ifodor/Documents/Projects/omniverse-examples/sim.ws/install/robo-sim/lib/python3.10/site-packages",
+        "/opt/ros/humble/lib/python3.10/site-packages",
+        "/opt/ros/humble/local/lib/python3.10/dist-packages"
+    ]
+}
