@@ -138,7 +138,7 @@ def generate_rock(stage, path, materials, size_distribution=None, translate = No
     mesh.GetFaceVertexCountsAttr().Set(face_vertex_counts)
 
     # Apply UV mapping
-    apply_uv_mapping(mesh, vertices, adjusted_faces, uv_scale=0.1)
+    # apply_uv_mapping(mesh, vertices, adjusted_faces, uv_scale=0.1)
 
     # Enable subdivision for tessellation
     mesh.GetPrim().CreateAttribute("subdivisionScheme", Sdf.ValueTypeNames.Token).Set("bilinear")
