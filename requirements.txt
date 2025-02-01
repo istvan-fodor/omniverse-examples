@@ -6,3 +6,4 @@ usd-core
 torch
 torchvision
 numpy
+scipy
