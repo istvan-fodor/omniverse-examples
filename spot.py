@@ -27,17 +27,25 @@ from omni.isaac.core.objects import DynamicCuboid, DynamicCone, DynamicCapsule
 import omni.graph.core as og
 from omni.isaac.sensor import IMUSensor, LidarRtx
 import numpy as np
+import omni.isaac.core.utils.stage as stage_utils
 
 ext_manager = omni.kit.app.get_app().get_extension_manager()
 ext_manager.set_extension_enabled_immediate("omni.isaac.ros2_bridge", True)
+ext_manager.set_extension_enabled_immediate("omni.anim.curve.core", True)
+ext_manager.set_extension_enabled_immediate("omni.anim.curve.bundle", True)
+ext_manager.set_extension_enabled_immediate("omni.anim.window.timeline", True)
+ext_manager.set_extension_enabled_immediate("omni.kit.window.movie_capture", True)
+
 carb.settings.get_settings().set("persistent/app/omniverse/gamepadCameraControl", False)
 is_ros2 = True
 
+spot_path = "/World/spot"
 
 
 class SimulationWorld():
     def __init__(self, environment="default"):
-        self.world = World(stage_units_in_meters=1.0, physics_dt=1 / 500, rendering_dt=1 / 50)
+        self.world = World(stage_units_in_meters=1.0, physics_dt=1 / 500, rendering_dt=1 / 60)
+        
         assets_root_path = get_assets_root_path()
         if assets_root_path is None:
             carb.log_error("Could not find Isaac Sim assets folder")
@@ -56,13 +64,20 @@ class SimulationWorld():
         if assets_root_path is None:
             carb.log_error("Could not find Isaac Sim assets folder")
 
-
+        self.environment = environment
         if environment == "warehouse":
             prim = get_prim_at_path("/World/Warehouse")
 
             if not prim.IsValid():
                 prim = define_prim("/World/Warehouse", "Xform")
-                asset_path = assets_root_path + "/Isaac/Environments/Simple_Warehouse/warehouse.usd"
+                asset_path = "assets_root_path + ""/Isaac/Environments/Simple_Warehouse/warehouse.usd"
+                prim.GetReferences().AddReference(asset_path)
+        if environment == "jetty":
+            prim = get_prim_at_path("/World/Jetty")
+
+            if not prim.IsValid():
+                prim = define_prim("/World/Jetty", "Xform")
+                asset_path = "omniverse://localhost/Library/jetty_and_gauge2.usd"
                 prim.GetReferences().AddReference(asset_path)
         else: # default
             prim = define_prim("/World/Ground", "Xform")
@@ -70,6 +85,12 @@ class SimulationWorld():
             prim.GetReferences().AddReference(asset_path)
 
             self.spawn_random_objects(num_objects=10)
+
+    def spawn_location(self):
+        if self.environment == "jetty":
+            return np.array([98, -21.5, 12])
+        else:
+            return np.array([0, 0,0])
 
 
     def init_clock(self):
@@ -123,10 +144,10 @@ class SimulationWorld():
             
 class SpotSimulation():
 
-    def __init__(self, prim_path, world):
-        self.image_width = 640
-        self.image_height = 480
-        self.world = world
+    def __init__(self, prim_path, simulation):
+        self.image_width = 1920 
+        self.image_height = 1080
+        self.world = world.world
         self._prim_path=prim_path
         self._absolute_path = f"/World/{self._prim_path}"
        
@@ -148,15 +169,16 @@ class SpotSimulation():
         self.spot = SpotFlatTerrainPolicy(
             prim_path=self._absolute_path,
             name="Spot",
-            position=np.array([0, 0, 0.8]),
+            position=np.array(simulation.spawn_location()),
         )
+
         self.world.reset()
         
         self._init_twist_subscriber()
         self._init_cameras()
-        self._init_odometry()
-        self._init_lidar()
-        self._init_imu()
+        #self._init_odometry()
+        #self._init_lidar()
+        #self._init_imu()
         
         self.world.add_physics_callback("physics_step", callback_fn=self.on_physics_step)
         self.world.reset()
@@ -321,7 +343,7 @@ class SpotSimulation():
                     ("PublishTF.inputs:parentPrim", f"{self._absolute_path}/body"),
                     ("PublishTF.inputs:targetPrims", [f"{self._absolute_path}/body/lidar_xform/lidar"
                                                       , f"{self._absolute_path}/body/imu_xform/imu"
-                                                      , f"{self._absolute_path}/body/camera_right"
+                                                      #, f"{self._absolute_path}/body/camera_right"
                                                       , f"{self._absolute_path}/body/camera_left"]),
 
                 ]
@@ -364,7 +386,7 @@ class SpotSimulation():
         self.cameras = [
             # 0name, 1offset, 2orientation, 3hori aperture, 4vert aperture, 5projection, 6focal length, 7focus distance
             ("/camera_left", Gf.Vec3d(0.2693, 0.025, 0.067), (90, 0, -90), 21, 16, "perspective", 24, 400),
-            ("/camera_right", Gf.Vec3d(0.2693, -0.025, 0.067), (90, 0, -90), 21, 16, "perspective", 24, 400),
+            #("/camera_right", Gf.Vec3d(0.2693, -0.025, 0.067), (90, 0, -90), 21, 16, "perspective", 24, 400),
         ]
 
         # add cameras on the body link
@@ -447,8 +469,8 @@ class SpotSimulation():
             command = np.array(linear_velocity) + np.array(angular_velocity)
             self.spot.advance(step_size, command)
 
-world = SimulationWorld("warehouse")
-sim = SpotSimulation("spot", world.world)
+world = SimulationWorld("jetty")
+sim = SpotSimulation("spot", world)
 
 
 while simulation_app.is_running():
