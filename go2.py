@@ -32,7 +32,7 @@ from omni.isaac.core.articulations import Articulation
 from omni.isaac.core.objects import DynamicCuboid, DynamicCone, DynamicCapsule
 from isaacsim.core.utils.prims import define_prim, get_prim_at_path
 from isaacsim.core.utils.rotations import euler_to_rot_matrix, quat_to_euler_angles, quat_to_rot_matrix
-from isaacsim.core.utils.stage import get_current_stage
+from isaacsim.core.utils.stage import get_current_stage, set_stage_up_axis
 from isaacsim.core.utils.types import ArticulationAction
 from omni.isaac.nucleus import get_assets_root_path
 from omni.isaac.sensor import IMUSensor, LidarRtx
@@ -194,8 +194,7 @@ class Go2FlatTerrainPolicy:
 
 class SimulationWorld():
     def __init__(self, environment="default"):
-        self.world = World(stage_units_in_meters=1.0, physics_dt=1 / 500, rendering_dt=1 / 60)
-        
+        self.world = World(stage_units_in_meters=1, physics_dt=1 / 500, rendering_dt=1 / 60)
         assets_root_path = get_assets_root_path()
         if assets_root_path is None:
             carb.log_error("Could not find Isaac Sim assets folder")
@@ -221,6 +220,17 @@ class SimulationWorld():
                 prim = define_prim("/World/Jetty", "Xform")
                 asset_path = "omniverse://localhost/Library/jetty_and_gauge2.usd"
                 prim.GetReferences().AddReference(asset_path)
+                
+        elif environment == "office":
+            prim = get_prim_at_path("/World/Office")
+
+            if not prim.IsValid():
+                prim = define_prim("/World/Office", "Xform")
+                asset_path = "omniverse://nucleus.fortableau.com/Projects/cec/__Collect__/Collected_CEC_Interior_v45_Export_v18_NewUpdated/COC_Interior_v45_Export_v18_NewUpdated.usd"
+                prim.GetReferences().AddReference(asset_path)
+                xform = UsdGeom.Xformable(prim)
+                xform.AddRotateXOp().Set(90)
+                xform.AddScaleOp().Set((0.01, 0.01, 0.01))
         else: # default
             prim = define_prim("/World/Ground", "Xform")
             asset_path = assets_root_path + "/Isaac/Environments/Grid/default_environment.usd"
@@ -231,6 +241,8 @@ class SimulationWorld():
     def spawn_location(self):
         if self.environment == "jetty":
             return np.array([98, -21.5, 12])
+        elif self.environment == "office":
+            return np.array([311, 74, -775])
         else:
             return np.array([0, 0, 0.7])
 
@@ -602,12 +614,21 @@ class Go2Simulation():
             command = np.array(linear_velocity) + np.array(angular_velocity)
             self.go2.advance(step_size, command)
 
-world = SimulationWorld("warehouse")
-sim = Go2Simulation("go2", world)
+if __name__ == "__main__":
+    import argparse
+
+    # parse command line arguments
+    parser = argparse.ArgumentParser(description="Go2 Envionment Simulation")
+    parser.add_argument("--environment", type=str, default="default", help="Environment to spawn the robot in. Valid options: default, warehouse, jetty, office.")  
+
+    args = parser.parse_args()
+    world = SimulationWorld(args.environment)
+
+    sim = Go2Simulation("go2", world)
 
 
-while simulation_app.is_running():
-    world.world.step(render=True)
+    while simulation_app.is_running():
+        world.world.step(render=True)
 
-simulation_app.close()
+    simulation_app.close()
 
