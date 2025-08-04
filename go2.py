@@ -97,7 +97,7 @@ class Go2FlatTerrainPolicy:
 
         # Policy
         file_content = omni.client.read_file(
-            "omniverse://localhost/Projects/Go2Walk/go2_flat_terrain_policy.pt"
+            "omniverse://nucleus.fortableau.com/Projects/cec/Go2LocoPolicy/go2_flat_terrain_policy.pt"
         )[2]
         file = io.BytesIO(memoryview(file_content).tobytes())
 
