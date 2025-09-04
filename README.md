@@ -21,6 +21,21 @@ Tested on ROS 2 humble and Ubuntu 22.04.
 1. In a different terminal build the `sim.ws` worspace and run the launchers.
 
 
+## Go2 Demo
+
+This demo let's you use a Go2 quadruped in a number of environment: random generated environment, warehouse or office. 
+
+Tested on ROS 2 humble and Ubuntu 22.04.
+
+
+#### Installation
+
+1. Run the `install.sh` script
+1. Activate the python env: `source venv/bin/activate`
+1. `python go2.py --env ` 
+1. In a different terminal build the `sim.ws` worspace and run the launchers.
+
+
 ## Rocks Demo
 
 This demo let's you use generate rocks. 
