@@ -24,6 +24,7 @@ import torch
 # Omni core and utilities
 import carb
 import omni
+import omni.usd
 import omni.graph.core as og
 import omni.isaac.core.utils.stage as stage_utils
 
@@ -36,6 +37,8 @@ from isaacsim.core.utils.stage import get_current_stage, set_stage_up_axis
 from isaacsim.core.utils.types import ArticulationAction
 from omni.isaac.nucleus import get_assets_root_path
 from omni.isaac.sensor import IMUSensor, LidarRtx
+from pxr import Usd, UsdGeom, UsdPhysics
+
 
 # USD and related
 from pxr import Gf, UsdGeom
@@ -52,6 +55,8 @@ ext_manager.set_extension_enabled_immediate("omni.kit.window.movie_capture", Tru
 ext_manager.set_extension_enabled_immediate("isaacsim.sensors.physics", True)
 
 carb.settings.get_settings().set("persistent/app/omniverse/gamepadCameraControl", False)
+
+LOCOMOTION_VELOCITY_GO2_POLICY_PATH = "omniverse://nucleus.fortableau.com/Projects/cec/Go2LocoPolicy/policy.pt"
 
 class Go2FlatTerrainPolicy:
 
@@ -97,7 +102,7 @@ class Go2FlatTerrainPolicy:
 
         # Policy
         file_content = omni.client.read_file(
-            "omniverse://nucleus.fortableau.com/Projects/cec/Go2LocoPolicy/go2_flat_terrain_policy.pt"
+            LOCOMOTION_VELOCITY_GO2_POLICY_PATH
         )[2]
         file = io.BytesIO(memoryview(file_content).tobytes())
 
@@ -222,15 +227,24 @@ class SimulationWorld():
                 prim.GetReferences().AddReference(asset_path)
                 
         elif environment == "office":
+            self.world.scene.add_default_ground_plane(prim_path="/World/Ground", z_position=0.0)
             prim = get_prim_at_path("/World/Office")
 
             if not prim.IsValid():
                 prim = define_prim("/World/Office", "Xform")
-                asset_path = "omniverse://nucleus.fortableau.com/Projects/cec/__Collect__/Collected_CEC_Interior_v45_Export_v18_NewUpdated/COC_Interior_v45_Export_v18_NewUpdated.usd"
-                prim.GetReferences().AddReference(asset_path)
                 xform = UsdGeom.Xformable(prim)
-                xform.AddRotateXOp().Set(90)
-                xform.AddScaleOp().Set((0.01, 0.01, 0.01))
+                #xform.AddRotateXOp().Set(90)
+                #xform.AddScaleOp().Set((0.01, 0.01, 0.01))
+                xform.AddTranslateOp().Set(Gf.Vec3d(0, 0, -0.289))
+                asset_path = "omniverse://nucleus.fortableau.com/Projects/cec/__Collect__/NJ_CEC_Interior_Scaled.usd"
+                prim.GetReferences().AddReference(asset_path)
+                self.add_colliders_to_all_meshes(prim, approximation="convexHull")
+
+
+
+
+            self.world.reset()
+                
         else: # default
             prim = define_prim("/World/Ground", "Xform")
             asset_path = assets_root_path + "/Isaac/Environments/Grid/default_environment.usd"
@@ -238,35 +252,32 @@ class SimulationWorld():
 
             self.spawn_random_objects(num_objects=10)
 
+    
+
+    def add_colliders_to_all_meshes(self, root, approximation: str = "convexHull"):
+        """
+        Apply mesh colliders to every Mesh under `root_path`.
+        approximation ∈ {"none","convexHull","convexDecomposition","boundingSphere","boundingCube","meshSimplification"}
+        """
+
+        token = getattr(UsdPhysics.Tokens, approximation)
+        n = 0
+        for prim in Usd.PrimRange(root):
+            if prim.IsA(UsdGeom.Mesh) and prim.GetName() != "Bottom_Rail":
+                # Mark this mesh as a collider and set the approximation mode
+                UsdPhysics.CollisionAPI.Apply(prim)
+                usd_mesh_col = UsdPhysics.MeshCollisionAPI.Apply(prim)
+                usd_mesh_col.GetApproximationAttr().Set(token)
+                n += 1
+        return n
+
     def spawn_location(self):
         if self.environment == "jetty":
             return np.array([98, -21.5, 12])
         elif self.environment == "office":
-            return np.array([311, 74, -775])
+            return np.array([-3.0, -8.0, 0.47])
         else:
             return np.array([0, 0, 0.7])
-
-
-    def init_clock(self):
-        keys = og.Controller.Keys
-        og.Controller.edit(
-            {
-                "graph_path": "/World/Clock", 
-                "evaluator_name": "execution",
-                "pipeline_stage": og.GraphPipelineStage.GRAPH_PIPELINE_STAGE_SIMULATION
-            },
-            {
-                keys.CREATE_NODES: [
-                    ("ReadSimTime", "isaacsim.core.nodes.IsaacReadSimulationTime"),
-                    ("OnPlaybackTick", "omni.graph.action.OnPlaybackTick"),
-                    ("PublishClock", "isaacsim.ros2.bridge.ROS2PublishClock"),
-                ],
-                keys.CONNECT: [
-                    ("OnPlaybackTick.outputs:tick", "PublishClock.inputs:execIn"),
-                    ("ReadSimTime.outputs:simulationTime", "PublishClock.inputs:timeStamp"),
-                ]
-            },
-        )
 
 
     def spawn_random_objects(self, num_objects=10):
@@ -323,11 +334,37 @@ class Go2Simulation():
         self._init_twist_subscriber()
         self._init_cameras()
         self._init_odometry()
-        #self._init_lidar()
+        self._init_lidar()
         self._init_imu()
+        self._init_clock()
         
         self.world.add_physics_callback("physics_step", callback_fn=self.on_physics_step)
         self.world.reset()
+
+
+    def _init_clock(self):
+        keys = og.Controller.Keys
+        og.Controller.edit(
+            {
+                "graph_path": "/World/Clock", 
+                "evaluator_name": "execution",
+                "pipeline_stage": og.GraphPipelineStage.GRAPH_PIPELINE_STAGE_SIMULATION
+            },
+            {
+                keys.CREATE_NODES: [
+                    ("ReadSimTime", "isaacsim.core.nodes.IsaacReadSimulationTime"),
+                    ("RosContext", f"isaacsim.ros2.bridge.ROS2Context"),
+                    ("OnPlaybackTick", "omni.graph.action.OnPlaybackTick"),
+                    ("PublishClock", "isaacsim.ros2.bridge.ROS2PublishClock"),
+                ],
+                keys.CONNECT: [
+                    ("OnPlaybackTick.outputs:tick", "PublishClock.inputs:execIn"),
+                    ("ReadSimTime.outputs:simulationTime", "PublishClock.inputs:timeStamp"),
+                    ("RosContext.outputs:context", "PublishClock.inputs:context"),
+                ]
+            },
+        )
+
 
     def _init_imu(self):
         stage = omni.usd.get_context().get_stage()
@@ -437,7 +474,7 @@ class Go2Simulation():
         self.lidar_path = lidar_path
 
 
-        # RTX sensors are cameras and must be assigned to their own render product
+
     def _init_odometry(self):
         keys = og.Controller.Keys
         graph_path = "/ROS_Odom"
@@ -478,7 +515,7 @@ class Go2Simulation():
                 ],
                 keys.SET_VALUES: [
                     ("PublishOdometry.inputs:topicName", "/odom"),
-                    ("ComputeOdometry.inputs:chassisPrim", self._absolute_path),
+                    ("ComputeOdometry.inputs:chassisPrim", f"{self._absolute_path}/base"),
                     ("PublishRawTF1.inputs:parentFrameId", "odom"),
                     ("PublishRawTF1.inputs:childFrameId", "base_link"),
                     ("PublishRawTF1.inputs:topicName", "tf"),
