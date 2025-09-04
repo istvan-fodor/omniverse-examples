@@ -656,7 +656,13 @@ if __name__ == "__main__":
 
     # parse command line arguments
     parser = argparse.ArgumentParser(description="Go2 Envionment Simulation")
-    parser.add_argument("--environment", type=str, default="default", help="Environment to spawn the robot in. Valid options: default, warehouse, jetty, office.")  
+    parser.add_argument(
+        "--env",
+        type=str,
+        default="default",
+        choices=["default", "warehouse", "jetty", "office"],
+        help="Environment to spawn the robot in. Valid options: default, warehouse, jetty, office."
+    )
 
     args = parser.parse_args()
     world = SimulationWorld(args.environment)
