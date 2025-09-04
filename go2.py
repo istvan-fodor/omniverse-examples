@@ -665,7 +665,7 @@ if __name__ == "__main__":
     )
 
     args = parser.parse_args()
-    world = SimulationWorld(args.environment)
+    world = SimulationWorld(args.env)
 
     sim = Go2Simulation("go2", world)
 
