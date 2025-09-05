@@ -108,7 +108,7 @@ class Go2FlatTerrainPolicy:
 
         self._policy = torch.jit.load(file)
         self._base_vel_lin_scale = 1
-        self._base_vel_ang_scale = 1
+        self._base_vel_ang_scale = 2.0
         self._action_scale = 0.2
         self._default_joint_pos = np.array([0.1, -0.1, 0.1, -0.1, 0.9, 0.9, 1.1, 1.1, -1.5, -1.5, -1.5, -1.5])
         self._previous_action = np.zeros(12)
@@ -239,6 +239,15 @@ class SimulationWorld():
                 asset_path = "omniverse://nucleus.fortableau.com/Projects/cec/__Collect__/NJ_CEC_Interior_Scaled.usd"
                 prim.GetReferences().AddReference(asset_path)
                 self.add_colliders_to_all_meshes(prim, approximation="convexHull")
+
+                gauge_prim = define_prim("/World/Office/Gauge", "Xform")
+                xform = UsdGeom.Xformable(gauge_prim)
+                #xform.AddTranslateOp().Set(Gf.Vec3d(--2, -4.15, 0.27489))
+                xform.AddTranslateOp().Set(Gf.Vec3d(-1.6, -8, 0.27489))
+                xform.AddOrientOp().Set(Gf.Quatf(0, 0, 0, 1.0)) 
+                gauge_asset_path = "omniverse://nucleus.fortableau.com/Projects/cec/Additional Model/hcl_gauge_and_stand.usdc"
+                gauge_prim.GetReferences().AddReference(gauge_asset_path)
+
 
 
 
@@ -527,7 +536,8 @@ class Go2Simulation():
                     ("PublishTF.inputs:targetPrims", [f"{self._absolute_path}/base/lidar_xform/lidar"
                                                       , f"{self._absolute_path}/base/imu_xform/imu"
                                                       #, f"{self._absolute_path}/base/camera_right"
-                                                      , f"{self._absolute_path}/base/camera_left"]),
+                                                      #, f"{self._absolute_path}/base/camera_left"
+                                                      , f"{self._absolute_path}/base/camera"]),
 
                 ]
             },
@@ -568,8 +578,9 @@ class Go2Simulation():
 
         self.cameras = [
             # 0name, 1offset, 2orientation, 3hori aperture, 4vert aperture, 5projection, 6focal length, 7focus distance
-            ("/camera_left", Gf.Vec3d(0.2693, 0.025, 0.067), (90, 0, -90), 21, 16, "perspective", 24, 400),
-            #("/camera_right", Gf.Vec3d(0.2693, -0.025, 0.067), (90, 0, -90), 21, 16, "perspective", 24, 400),
+            #("/camera_left", Gf.Vec3d(0.2693, 0.025, 0.067), (90, 0, -90), 21, 16, "perspective", 35.0, 400, Gf.Vec2f(0.01, 1000000)),
+            #("/camera_right", Gf.Vec3d(0.2693, -0.025, 0.067), (90, 0, -90), 21, 16, "perspective", 35.0, 400, Gf.Vec2f(0.01, 1000000)),
+            ("/camera", Gf.Vec3d(0.32949, 0, 0.04143), (90, 0, -90), 21, 16, "perspective", 12.0, 400, Gf.Vec2f(0.01, 1000000)),
         ]
 
         # add cameras on the base link
@@ -587,6 +598,7 @@ class Go2Simulation():
             camera_prim.GetProjectionAttr().Set(camera[5])
             camera_prim.GetFocalLengthAttr().Set(camera[6])
             camera_prim.GetFocusDistanceAttr().Set(camera[7])
+            camera_prim.GetClippingRangeAttr().Set(camera[8])
 
 
             # Creating an on-demand push graph with cameraHelper nodes to generate ROS image publishers

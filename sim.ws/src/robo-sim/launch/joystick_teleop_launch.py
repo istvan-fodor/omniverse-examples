@@ -13,7 +13,8 @@ def generate_launch_description():
                 {'enable_button': 5},
                 {'axis_angular.yaw': 3},
                 {'axis_linear.x': 4},
-                {'scale_linear.x': 2.0}
+                {'scale_linear.x': 2.0},
+                {'scale_angular.z': 2.0}
             ],
             remappings=[
                 ('joy_vel', 'cmd_vel')
