@@ -19,12 +19,18 @@ def generate_launch_description():
         description='Full path to the SLAM Toolbox parameters file'
     )
 
+    use_sim_time_arg = DeclareLaunchArgument(
+        'use_sim_time',
+        default_value='True',
+        description='Use simulation (Gazebo) clock if true',
+    )
+
     slam_toolbox_node = Node(
         package='slam_toolbox',
         executable='async_slam_toolbox_node',
         name='slam_toolbox',
         output='screen',
-        parameters=[LaunchConfiguration('slam_params_file')],
+        parameters=[LaunchConfiguration('slam_params_file'), LaunchConfiguration('use_sim_time')],
         remappings=[
             ('/scan', '/scan'),
             ('/tf', '/tf'),
@@ -37,5 +43,6 @@ def generate_launch_description():
 
     return LaunchDescription([
         declare_slam_params,
+        use_sim_time_arg,
         slam_toolbox_node
     ])

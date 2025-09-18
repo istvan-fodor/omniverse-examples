@@ -1,4 +1,4 @@
-isaacsim[all,extscache]==4.5.0.0
+isaacsim[all,extscache]==5.0.0.0
 usd-core
 torch
 torchvision
