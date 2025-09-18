@@ -21,6 +21,11 @@ import omni.graph.core as og
 
 ext_manager = omni.kit.app.get_app().get_extension_manager()
 ext_manager.set_extension_enabled_immediate("omni.isaac.ros2_bridge", True)
+ext_manager.set_extension_enabled_immediate("omni.anim.curve.core", True)
+ext_manager.set_extension_enabled_immediate("omni.anim.curve.bundle", True)
+ext_manager.set_extension_enabled_immediate("omni.anim.window.timeline", True)
+ext_manager.set_extension_enabled_immediate("omni.kit.window.movie_capture", True)
+
 
 
 
@@ -68,8 +73,8 @@ class RockSimulation():
             prim.GetReferences().AddReference(asset_path)
 
 
-        self.dome_light = UsdLux.DomeLight.Define(stage, "/World/DomeLight")
-        UsdLux.LightAPI(self.dome_light).CreateIntensityAttr(1500)
+        # self.dome_light = UsdLux.DomeLight.Define(stage, "/World/DomeLight")
+        # UsdLux.LightAPI(self.dome_light).CreateIntensityAttr(1500)
         self.parent = UsdGeom.Scope.Define(stage, "/World/Rocks")
         self.assets_root_path = get_assets_root_path()
         self.drop_zone = get_prim_at_path("/World/ConveyorScene/DropZone")
@@ -169,7 +174,6 @@ class RockSimulation():
 
         # Set interpolation to "faceVarying"
         mesh.GetPrim().CreateAttribute("primvars:st:interpolation", Sdf.ValueTypeNames.Token).Set("faceVarying")
-
 
     def generate_rock(self, stage, path, size_distribution=None, translate = None, min_points=100, max_points=200):
         """
