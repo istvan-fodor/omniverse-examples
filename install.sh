@@ -1,6 +1,8 @@
 #!/bin/bash
 
-python3 -m venv venv
-source venv/bin/activate
+conda create -n omniverse-5.1 python==3.11
 
-pip install -r requirements4.5.txt --extra-index-url https://pypi.nvidia.com
+conda activate omniverse-5.1
+
+pip install -r requirements5.1.txt
+
