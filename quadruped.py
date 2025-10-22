@@ -37,7 +37,9 @@ from isaacsim.core.utils.stage import get_current_stage, set_stage_up_axis
 from isaacsim.core.utils.types import ArticulationAction
 from omni.isaac.nucleus import get_assets_root_path
 from omni.isaac.sensor import IMUSensor, LidarRtx
-from pxr import Usd, UsdGeom, UsdPhysics
+from pxr import Usd, UsdGeom, UsdPhysics, Sdf
+#from omni.isaac.quadruped.robots import SpotFlatTerrainPolicy
+from isaacsim.robot.policy.examples.robots import SpotFlatTerrainPolicy
 
 
 # USD and related
@@ -107,13 +109,13 @@ class Go2FlatTerrainPolicy:
         file = io.BytesIO(memoryview(file_content).tobytes())
 
         self._policy = torch.jit.load(file)
-        self._base_vel_lin_scale = 1
-        self._base_vel_ang_scale = 2.0
-        self._action_scale = 0.2
+        self._base_vel_lin_scale = 1.0
+        self._base_vel_ang_scale = 1.0
+        self._action_scale = 0.1
         self._default_joint_pos = np.array([0.1, -0.1, 0.1, -0.1, 0.9, 0.9, 1.1, 1.1, -1.5, -1.5, -1.5, -1.5])
         self._previous_action = np.zeros(12)
         self._policy_counter = 0
-        self._decimation = 10
+        self._decimation = 20
 
     def _compute_observation(self, command):
         """
@@ -157,7 +159,7 @@ class Go2FlatTerrainPolicy:
 
         return obs
 
-    def advance(self, dt, command):
+    def forward(self, dt, command):
         """
         Compute the desired torques and apply them to the articulation
 
@@ -223,7 +225,7 @@ class SimulationWorld():
 
             if not prim.IsValid():
                 prim = define_prim("/World/Jetty", "Xform")
-                asset_path = "omniverse://localhost/Library/jetty_and_gauge2.usd"
+                asset_path = "omniverse://nucleus.fortableau.com/Projects/jetty/jetty_and_gauge_v9.usd"
                 prim.GetReferences().AddReference(asset_path)
                 
         elif environment == "office":
@@ -315,37 +317,40 @@ class SimulationWorld():
                 )
             )
 
-            
-class Go2Simulation():
 
-    def __init__(self, prim_path, simulation):
+class Simulation():
+
+    def __init__(self, simulation_world, quadruped, prim_path, absolute_path, chassis_path, imu_relative_path, lidar_relative_path, cameras, use_lidar):
         self.image_width = 1920 
         self.image_height = 1080
-        self.world = world.world
+
+
+        self.world = simulation_world.world
+        self.quadruped = quadruped
         self._prim_path=prim_path
-        self._absolute_path = f"/World/{self._prim_path}"
+        self._absolute_path = absolute_path
+        self.chassis_path = chassis_path
+        self.imu_relative_path = imu_relative_path
+        self.lidar_relative_path = lidar_relative_path
+        self.cameras = cameras
+        
+        self._sensor_paths = []
        
         # after stage is defined
         self._stage = omni.usd.get_context().get_stage()
 
         self.first_step = True
         self.reset_needed = False
-        
-        # spawn robot
-        self.go2 = Go2FlatTerrainPolicy(
-            prim_path=self._absolute_path,
-            name="Go2",
-            position=np.array(simulation.spawn_location()),
-        )
 
         self.world.reset()
         
         self._init_twist_subscriber()
-        self._init_cameras()
-        self._init_odometry()
-        self._init_lidar()
-        self._init_imu()
         self._init_clock()
+        self._init_cameras()
+        if use_lidar:
+            self._init_lidar()
+        self._init_imu()
+        self._init_odometry()
         
         self.world.add_physics_callback("physics_step", callback_fn=self.on_physics_step)
         self.world.reset()
@@ -377,11 +382,12 @@ class Go2Simulation():
 
     def _init_imu(self):
         stage = omni.usd.get_context().get_stage()
-        xform_path = f"{self._absolute_path}/base/imu_xform"
+        xform_path = f"{self._absolute_path}{self.imu_relative_path}"
         xform = UsdGeom.Xform.Define(stage, xform_path)
         xform.AddTranslateOp().Set(Gf.Vec3f(0.0, 0.0, 0.0))
         
         path = f"{xform_path}/imu"
+        self._sensor_paths.append(path)
         
         self.imu = IMUSensor(
             prim_path=path,
@@ -393,6 +399,8 @@ class Go2Simulation():
             angular_velocity_filter_size = 10,
             orientation_filter_size = 10,
         )
+
+        
 
         keys = og.Controller.Keys
         graph_path = "/ROS_Imu"
@@ -434,14 +442,17 @@ class Go2Simulation():
 
 
 
+
     def _init_lidar(self):
         stage = omni.usd.get_context().get_stage()
-        xform_path = f"{self._absolute_path}/base/lidar_xform"
+        xform_path = f"{self._absolute_path}{self.lidar_relative_path}"
         xform = UsdGeom.Xform.Define(stage, xform_path)
         xform.AddTranslateOp().Set(Gf.Vec3f(0.4, 0.0, .1))
+
         path = f"{xform_path}/lidar"
-    
-        self.lidar = LidarRtx(path, name="go2_lidar", orientation=np.array([1.0, 0.0, 0.0, 0.0]))
+        self._sensor_paths.append(path)
+        #lidar_prim = stage.DefinePrim(Sdf.Path(path))
+        self.lidar = LidarRtx(path, name="lidar", orientation=np.array([1.0, 0.0, 0.0, 0.0]))
 
         keys = og.Controller.Keys
         graph_path = "/ROS_Lidar"
@@ -524,7 +535,7 @@ class Go2Simulation():
                 ],
                 keys.SET_VALUES: [
                     ("PublishOdometry.inputs:topicName", "/odom"),
-                    ("ComputeOdometry.inputs:chassisPrim", f"{self._absolute_path}/base"),
+                    ("ComputeOdometry.inputs:chassisPrim", f"{self._absolute_path}{self.chassis_path}"),
                     ("PublishRawTF1.inputs:parentFrameId", "odom"),
                     ("PublishRawTF1.inputs:childFrameId", "base_link"),
                     ("PublishRawTF1.inputs:topicName", "tf"),
@@ -532,12 +543,8 @@ class Go2Simulation():
                     ("PublishRawTF2.inputs:childFrameId", "base"),
                     ("PublishRawTF2.inputs:topicName", "tf"),
                     ("PublishTF.inputs:topicName", "tf"),
-                    ("PublishTF.inputs:parentPrim", f"{self._absolute_path}/base"),
-                    ("PublishTF.inputs:targetPrims", [f"{self._absolute_path}/base/lidar_xform/lidar"
-                                                      , f"{self._absolute_path}/base/imu_xform/imu"
-                                                      #, f"{self._absolute_path}/base/camera_right"
-                                                      #, f"{self._absolute_path}/base/camera_left"
-                                                      , f"{self._absolute_path}/base/camera"]),
+                    ("PublishTF.inputs:parentPrim", f"{self._absolute_path}{self.chassis_path}"),
+                    ("PublishTF.inputs:targetPrims", self._sensor_paths + self.camera_paths),
 
                 ]
             },
@@ -575,20 +582,14 @@ class Go2Simulation():
 
     def _init_cameras(self):
         keys = og.Controller.Keys
-
-        self.cameras = [
-            # 0name, 1offset, 2orientation, 3hori aperture, 4vert aperture, 5projection, 6focal length, 7focus distance
-            #("/camera_left", Gf.Vec3d(0.2693, 0.025, 0.067), (90, 0, -90), 21, 16, "perspective", 35.0, 400, Gf.Vec2f(0.01, 1000000)),
-            #("/camera_right", Gf.Vec3d(0.2693, -0.025, 0.067), (90, 0, -90), 21, 16, "perspective", 35.0, 400, Gf.Vec2f(0.01, 1000000)),
-            ("/camera", Gf.Vec3d(0.32949, 0, 0.04143), (90, 0, -90), 21, 16, "perspective", 12.0, 400, Gf.Vec2f(0.01, 1000000)),
-        ]
-
+        self.camera_paths = []
         # add cameras on the base link
         self.camera_graphs = []
         for i in range(len(self.cameras)):
             # add camera prim
             camera = self.cameras[i]
-            camera_path = f"{self._absolute_path}/base{camera[0]}" 
+            camera_path = f"{self._absolute_path}{self.chassis_path}{camera[0]}" 
+            self.camera_paths.append(camera_path)
             camera_prim = UsdGeom.Camera(self._stage.DefinePrim(camera_path, "Camera"))
             xform_api = UsdGeom.XformCommonAPI(camera_prim)
             xform_api.SetRotate(camera[2], UsdGeom.XformCommonAPI.RotationOrderXYZ)
@@ -637,11 +638,11 @@ class Go2Simulation():
                         ("setViewportResolution.inputs:height", int(self.image_height)),
                         ("setViewportResolution.inputs:width", int(self.image_width)),
                         ("cameraHelperRgb.inputs:frameId", camera[0]),
-                        ("cameraHelperRgb.inputs:nodeNamespace", "/go2"),
+                        ("cameraHelperRgb.inputs:nodeNamespace", "/quadruped"),
                         ("cameraHelperRgb.inputs:topicName", "camera_forward" + camera[0] + "/rgb"),
                         ("cameraHelperRgb.inputs:type", "rgb"),
                         ("cameraHelperInfo.inputs:frameId", camera[0]),
-                        ("cameraHelperInfo.inputs:nodeNamespace", "/go2"),
+                        ("cameraHelperInfo.inputs:nodeNamespace", "/quadruped"),
                         ("cameraHelperInfo.inputs:topicName", camera[0] + "/camera_info"),
                         ("setCamera.inputs:cameraPrim", [usdrt.Sdf.Path(camera_path)]),
                     ],
@@ -651,7 +652,7 @@ class Go2Simulation():
 
     def on_physics_step(self, step_size) -> None:
         if self.first_step:
-            self.go2.initialize()
+            self.quadruped.initialize()
             self.first_step = False
         elif self.reset_needed:
             self.world.reset(True)
@@ -661,7 +662,40 @@ class Go2Simulation():
             linear_velocity = og.Controller.attribute("ROSSubscribeTwist.outputs:linearVelocity", graph_id=self.twist_graph).get()
             angular_velocity = og.Controller.attribute("ROSSubscribeTwist.outputs:angularVelocity", graph_id=self.twist_graph).get()
             command = np.array(linear_velocity) + np.array(angular_velocity)
-            self.go2.advance(step_size, command)
+            self.quadruped.forward(step_size, command)
+
+
+class Go2Simulation(Simulation):
+
+    def __init__(self, prim_path, simulation_world, use_lidar = True):
+        absolute_path = f"/World/{prim_path}"
+        cameras = [
+            #("/camera_left", Gf.Vec3d(0.2693, 0.025, 0.067), (90, 0, -90), 21, 16, "perspective", 35.0, 400, Gf.Vec2f(0.01, 1000000)),
+            #("/camera_right", Gf.Vec3d(0.2693, -0.025, 0.067), (90, 0, -90), 21, 16, "perspective", 35.0, 400, Gf.Vec2f(0.01, 1000000)),
+            ("/camera", Gf.Vec3d(0.32949, 0.0, 0.04143), (90, 0, -90), 21, 16, "perspective", 12.0, 400, Gf.Vec2f(0.01, 1000000)),
+        ]
+        quadruped = Go2FlatTerrainPolicy(
+            prim_path=absolute_path,
+            name="Go2",
+            position=np.array(simulation_world.spawn_location()),
+        )
+
+        super().__init__(simulation_world, quadruped, prim_path, absolute_path, '/base', "/base/imu_xform", "/base/lidar_xform", cameras, use_lidar)
+
+class SpotSimulation(Simulation):
+
+    def __init__(self, prim_path, simulation_world, use_lidar = True):
+        absolute_path = f"/World/{prim_path}"
+        cameras = [
+            ("/camera", Gf.Vec3d(0.41, 0.0, 0.0), (90, 0, -90), 21, 16, "perspective", 12.0, 400, Gf.Vec2f(0.01, 1000000)),
+        ]
+        quadruped = SpotFlatTerrainPolicy(
+            prim_path=absolute_path,
+            name="Spot",
+            position=np.array(simulation_world.spawn_location()),
+        )
+
+        super().__init__(simulation_world, quadruped, prim_path, absolute_path, '/body', "/body/imu_xform", "/body/lidar_xform", cameras, use_lidar)
 
 if __name__ == "__main__":
     import argparse
@@ -675,11 +709,26 @@ if __name__ == "__main__":
         choices=["default", "warehouse", "jetty", "office"],
         help="Environment to spawn the robot in. Valid options: default, warehouse, jetty, office."
     )
+    parser.add_argument(
+        "--quadruped",
+        type=str,
+        default="go2",
+        choices=["go2", "spot"],
+        help="Quadruped robot to spawn. Valid options are go2 and spot"
+    )
+    parser.add_argument(
+        "--lidar",
+        action="store_true",
+        help="Use lidar"
+    )
 
     args = parser.parse_args()
     world = SimulationWorld(args.env)
-
-    sim = Go2Simulation("go2", world)
+    
+    if args.quadruped == 'go2':
+        sim = Go2Simulation("go2", world, args.lidar)
+    elif args.quadruped == 'spot':
+        sim = SpotSimulation("spot", world, args.lidar)
 
 
     while simulation_app.is_running():
