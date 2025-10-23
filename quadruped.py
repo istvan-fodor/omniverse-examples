@@ -225,7 +225,7 @@ class SimulationWorld():
 
             if not prim.IsValid():
                 prim = define_prim("/World/Jetty", "Xform")
-                asset_path = "omniverse://nucleus.fortableau.com/Projects/jetty/jetty_and_gauge_v9.usd"
+                asset_path = "omniverse://nucleus.fortableau.com/Projects/jetty/jetty_and_gauge_v10.usd"
                 prim.GetReferences().AddReference(asset_path)
                 
         elif environment == "office":
@@ -284,7 +284,7 @@ class SimulationWorld():
 
     def spawn_location(self):
         if self.environment == "jetty":
-            return np.array([98, -21.5, 12])
+            return np.array([97, -21.5, 12])
         elif self.environment == "office":
             return np.array([-3.0, -8.0, 0.47])
         else:
