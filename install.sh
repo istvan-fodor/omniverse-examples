@@ -1,6 +1,7 @@
 #!/bin/bash
+eval "$(conda shell.bash hook)"
 
-conda create -n omniverse-5.1 python==3.11
+conda create -n omniverse-5.1 -y python==3.11
 
 conda activate omniverse-5.1
 
