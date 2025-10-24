@@ -639,7 +639,7 @@ class Simulation():
                         ("setViewportResolution.inputs:width", int(self.image_width)),
                         ("cameraHelperRgb.inputs:frameId", camera[0]),
                         ("cameraHelperRgb.inputs:nodeNamespace", "/quadruped"),
-                        ("cameraHelperRgb.inputs:topicName", "camera_forward" + camera[0] + "/rgb"),
+                        ("cameraHelperRgb.inputs:topicName", camera[0] + "/rgb"),
                         ("cameraHelperRgb.inputs:type", "rgb"),
                         ("cameraHelperInfo.inputs:frameId", camera[0]),
                         ("cameraHelperInfo.inputs:nodeNamespace", "/quadruped"),
